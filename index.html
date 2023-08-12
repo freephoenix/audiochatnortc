@@ -1,0 +1,89 @@
+﻿<!DOCTYPE html>
+<html>
+<head>
+  <meta http-equiv="Content-Type" content="application/xhtml+xml; charset=utf-8" />
+  <title>аудиочат без webRTC</title>
+</head>
+<body>
+  <button id='allow'>включить прием</button>
+  <br />
+  <button id='call'>позвонить</button>
+  <br />
+  <button id='stopCall'>завершить звонок</button>
+
+<script>
+//https://pure-beyond-99163.herokuapp.com
+const socket = new WebSocket('ws'+window.location.origin.substring(4));
+socket.binaryType='blob';
+socket.onerror = (err)=>console.log('Ошибка '+err.message);
+socket.onclose = (e)=>console.log(socket.readyState+' Код: '+e.code+' причина: '+e.reason);
+
+// запись и отправка данных
+socket.onopen = function(e) {
+  console.log('Соединение установлено: '+socket.readyState);
+  if(navigator.mediaDevices) {
+    navigator.mediaDevices.getUserMedia({audio:true})
+      .then((stream)=>{
+        const rec = new MediaRecorder(stream, {mimeType: `audio/webm;codecs=opus`});
+        let data=[];
+        rec.ondataavailable=(e)=>{
+          if(e.data && e.data.size > 0) {
+            data.push(e.data);
+            if(rec.state=='recording') {
+              rec.stop();
+              rec.start(1000);
+            }
+          }
+        }
+        rec.onstop=(e)=>{
+          if(data.length>1) {
+            socket.send(new Blob(data, {'type':'audio/webm; codecs=opus'}));
+            //let audio=document.createElement('audio');
+            //audio.src=window.URL.createObjectURL(new Blob(data, {'type':'audio/webm; codecs=opus'}));
+            data=[];
+            //audio.controls=true;
+            //document.body.appendChild(audio);
+            //audio.play();
+          }
+        }
+        rec.onerror=(e)=>{
+          throw e.error || new Error(e.name); // e.name is non-spec
+        }
+        document.querySelector('#call').onclick=()=>{if(rec.state!='recording') rec.start(1000);}	// кусочки по 1000 мс
+        document.querySelector('#stopCall').onclick=()=>{if(rec.state=='recording') rec.stop();}
+      })
+      .catch(err=>console.log(err.message));
+  } else console.log('getUserMedia is not supported in this browser.');
+};
+
+// прием и воспроизведение данных
+document.getElementById('allow').onclick=(e)=>{
+  e.target.remove();
+  let audioContext = new AudioContext();
+
+  // через audio tag
+  socket.onmessage = (e)=>{
+    let audio=new Audio(window.URL.createObjectURL(e.data));	// можно и так let audio=document.createElement('audio'); audio.src=window.URL.createObjectURL(e.data);
+    audio.type='audio/webm';	// необязательная строка
+    audio.play();
+    audio.onended=(e)=>{delete e.target};	// необязательная строка, сборщик мусора все-равно уберет, но не сразу
+  };
+/*
+  // через audioContext.createBufferSource
+  let fileReader = new FileReader();
+  let arrayBuffer;
+  socket.onmessage = (e)=>{
+    let playSound = audioContext.createBufferSource();
+    playSound.connect(audioContext.destination);
+    playSound.start(audioContext.currentTime);
+
+    fileReader.onloadend = () => {
+      audioContext.decodeAudioData(fileReader.result, (buffer)=>{playSound.buffer = buffer;});
+    }
+    fileReader.readAsArrayBuffer(e.data);
+  };
+*/
+}
+</script>
+</body>
+</html>
